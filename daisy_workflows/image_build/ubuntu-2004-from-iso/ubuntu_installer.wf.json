@@ -1,0 +1,122 @@
+{
+  "Name": "build-ubuntu",
+  "DefaultTimeout": "60m",
+  "Vars": {
+    "ubuntu_release": {
+      "Required": true,
+      "Description": "The Ubuntu release name."
+    },
+    "machine_type": {
+      "Value": "e2-standard-4",
+      "Description": "The machine type to use during build."
+    },
+    "worker_image": {
+      "Value": "projects/compute-image-tools/global/images/family/debian-12-worker",
+      "Description": "The worker image to use for the build."
+    },
+    "installer_iso": {
+      "Required": true,
+      "Description": "The path to the Ubuntu installation ISO."
+    },
+    "disk_type": {
+      "Value": "pd-ssd",
+      "Description": "Type of disk to use for builds."
+    }
+  },
+  "Sources": {
+    "build_files/build_installer.py": "build_installer.py",
+    "build_files/installer.iso": "${installer_iso}",
+    "build_files/utils": "../../linux_common/utils",
+    "build_files/autoinstall.yaml": "autoinstall.yaml",
+    "build_files/meta-data": "meta-data",
+    "installerprep_startup_script": "../../linux_common/bootstrap.sh"
+  },
+  "Steps": {
+    "setup-disks": {
+      "CreateDisks": [
+        {
+          "Name": "disk-installerprep",
+          "SourceImage": "${worker_image}",
+          "SizeGb": "50",
+          "Type": "${disk_type}"
+        },
+        {
+          "Name": "disk-installer",
+          "SizeGb": "50",
+          "Type": "${disk_type}",
+          "GuestOsFeatures": [{"type": "UEFI_COMPATIBLE"}, {"type": "GVNIC"}]
+        },
+        {
+          "Name": "ubuntu-install-disk",
+          "SizeGb": "20",
+          "Type": "${disk_type}",
+          "GuestOsFeatures": [{"type": "UEFI_COMPATIBLE"}, {"type": "GVNIC"}]
+        }
+      ]
+    },
+    "run-installer-prep": {
+      "CreateInstances": [
+        {
+          "Name": "inst-installerprep",
+          "Disks": [{"Source": "disk-installerprep"}, {"Source": "disk-installer"}],
+          "MachineType": "${machine_type}",
+          "Metadata": {
+            "files_gcs_dir": "${SOURCESPATH}/build_files",
+            "debian_install_google_api_python_client": "yes",
+            "script": "build_installer.py",
+            "script_prints_status": "no",
+            "prefix": "Build",
+            "ubuntu_release": "${ubuntu_release}"
+          },
+          "Scopes": ["https://www.googleapis.com/auth/devstorage.read_write"],
+          "StartupScript": "installerprep_startup_script"
+        }
+      ]
+    },
+    "wait-installer-prep": {
+      "Timeout": "60m",
+      "WaitForInstancesSignal": [
+        {
+          "Name": "inst-installerprep",
+          "SerialOutput": {
+            "Port": 1,
+            "FailureMatch": "BuildFailed:",
+            "SuccessMatch": "BuildSuccess:",
+            "StatusMatch": "BuildStatus:"
+          }
+        }
+      ]
+    },
+    "cleanup-installer-prep": {
+      "DeleteResources": {
+        "Instances": ["inst-installerprep"]
+      }
+    },
+    "run-installation": {
+      "CreateInstances": [
+        {
+          "Name": "inst-build",
+          "Disks": [{"Source": "disk-installer"}, {"Source": "ubuntu-install-disk"}],
+          "MachineType": "${machine_type}"
+        }
+      ]
+    },
+    "wait-installation": {
+      "Timeout": "60m",
+      "WaitForInstancesSignal": [{"Name": "inst-build", "Stopped": true}]
+    },
+    "cleanup-inst-build": {
+      "DeleteResources": {
+        "Instances": ["inst-build"]
+      }
+    }
+  },
+  "Dependencies": {
+    "run-installer-prep": ["setup-disks"],
+    "wait-installer-prep": ["run-installer-prep"],
+    "cleanup-installer-prep": ["wait-installer-prep"],
+    "run-installation": ["cleanup-installer-prep"],
+    "wait-installation": ["run-installation"],
+    "cleanup-inst-build": ["wait-installation"]
+  }
+}

@@ -1,0 +1,36 @@
+#cloud-config
+autoinstall:
+  version: 1
+  identity:
+    hostname: ubuntu-2004
+    # Note: You should generate a hashed password and add it here.
+    # Example: password: "$6$exDY1mhS4KUYCE/2$zmn9ToZwTKLhCw.b4/b.ZRTIZM30JZ4QrOQ2aOXJ8yk96xpcCof0kxKwuX1kqLG/ygbJ1f8wxED22bTL4F46P0"
+    password: "temppassword"
+    username: ubuntu
+  keyboard:
+    layout: us
+    variant: ''
+  locale: en_US.UTF-8
+  network:
+    ethernets:
+      ens4:
+        dhcp4: true
+    version: 2
+  ssh:
+    install-server: true
+  storage:
+    layout:
+      name: direct
+  updates: security
+  apt:
+    disable_suites: [security]
+  late-commands:
+    - curtin in-target -- useradd -m -s /bin/bash -G sudo rnv
+    - curtin in-target -- sh -c 'echo "rnv:password" | chpasswd'
+    - curtin in-target -- sh -c 'echo "nameserver 8.8.8.8" > /etc/resolv.conf'
+    - curtin in-target -- add-apt-repository "deb http://packages.cloud.google.com/apt cloud-sdk main"
+    - curtin in-target -- sh -c "curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -"
+    - curtin in-target -- apt-get update
+    - curtin in-target -- apt-get install -y google-compute-engine google-osconfig-agent
+  shutdown: poweroff
+
